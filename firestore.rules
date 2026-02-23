@@ -1,0 +1,71 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Check if user is signed in
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    // Check if user owns the document (UID matches)
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    // Since role is stored in memberships, checking global admin/manager role natively in rules 
+    // requires a get() call or relying on custom claims. For this setup, we will query the 
+    // memberships collection or the users collection.
+    // Let's assume global role is in the users document for simplicity.
+    function getUserRole() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
+    }
+
+    function isSuperAdmin() {
+      return isAuthenticated() && getUserRole() == 'super_admin';
+    }
+
+    match /users/{userId} {
+      allow read: if isAuthenticated(); // Directory purposes
+      allow create, update: if isOwner(userId) || isAdmin() || isSuperAdmin();
+      allow delete: if false; // Soft delete only
+    }
+
+    match /sites/{siteId} {
+      allow read: if isAuthenticated();
+      allow create, update: if isSuperAdmin(); // Only super admins can manage sites
+      allow delete: if false;
+    }
+
+    match /memberships/{memId} {
+      allow read: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin() || isSuperAdmin());
+      allow create, update: if isAdmin() || isSuperAdmin(); 
+      allow delete: if false;
+    }
+
+    match /marketplace_listings/{listingId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && request.resource.data.sellerId == request.auth.uid;
+      allow update: if isOwner(resource.data.sellerId) || isAdmin() || isSuperAdmin();
+      allow delete: if false; // Soft delete only
+    }
+
+    match /helpdesk_tickets/{ticketId} {
+      allow read: if isAuthenticated() && (resource.data.residentId == request.auth.uid || isAdmin() || isSuperAdmin());
+      allow create: if isAuthenticated() && request.resource.data.residentId == request.auth.uid;
+      allow update: if isOwner(resource.data.residentId) || isAdmin() || isSuperAdmin();
+      allow delete: if false; // Soft delete only
+    }
+    
+    match /announcements/{announcementId} {
+      allow read: if isAuthenticated();
+      allow create, update: if isAdmin() || isSuperAdmin();
+      allow delete: if false; // Soft delete only
+    }
+    
+    // Catch-all deny for anything else
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

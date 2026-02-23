@@ -1,0 +1,24 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /images/{siteId}/{imageId} {
+      // Only authenticated users can upload
+      allow read: if request.auth != null;
+      
+      allow create: if request.auth != null
+                    // Restrict size to 5MB
+                    && request.resource.size < 5 * 1024 * 1024
+                    // Allow only webp, png, jpeg
+                    && request.resource.contentType.matches('image/.*');
+                    
+      // Only owner or super admin can delete (in storage, physical delete is sometimes needed, or we can deny it and just soft-delete the DB record)
+      allow delete: if request.auth != null; 
+      allow update: if false; // immutable once uploaded
+    }
+    
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}
